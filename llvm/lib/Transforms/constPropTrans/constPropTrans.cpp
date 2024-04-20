@@ -2,6 +2,7 @@
 #include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/raw_ostream.h"
 #include <unordered_map>
@@ -140,6 +141,58 @@ namespace
             pos = end;  // Update position to search for the next argument
         }
         return Args;
+    }
+
+    bool canRemoveStore(StoreInst *SI)
+    {
+        Value *StoredPtr = SI->getPointerOperand();
+        Function *func = SI->getFunction();
+
+        // Flag to start checking after the store instruction
+        bool found = false;
+
+        // Check if the stored pointer is used in subsequent instructions
+        for (auto &I : instructions(func)) {
+            if (&I == SI) {
+                found = true;
+                continue;
+            }
+            if (found)
+            {
+                // Check each operand in the instruction to see if it uses storedPtr
+                for (unsigned int i = 0; i < I.getNumOperands(); i++) {
+                    if (I.getOperand(i) == StoredPtr) 
+                        return false;
+                    }
+            }
+                            
+        }
+        return true;
+    };
+
+    bool isUsedAfterAlloca(Instruction *allocaInst) {
+        Value *allocatedMemory = cast<AllocaInst>(allocaInst);
+        bool pastAlloca = false; // Flag to track if we are past the AllocaInst in the block
+
+        // Iterate over all instructions in the function to check for uses
+        for (auto &BB : *allocaInst->getFunction()) {
+            for (auto &I : BB) {
+                if (&I == allocaInst) {
+                    pastAlloca = true; // Set the flag once we encounter the AllocaInst
+                    continue;
+                }
+                if (pastAlloca) { // Only check for uses after we've encountered AllocaInst
+                    // Iterate over all operands in each instruction
+                    for (unsigned int i = 0; i < I.getNumOperands(); i++) {
+                        if (I.getOperand(i) == allocatedMemory) {
+                            return true; // Memory is used after the AllocaInst
+                        }
+                    }
+                }
+            }
+            pastAlloca = false; // Reset the flag as we move to the next basic block
+        }
+        return false; // No uses found after the AllocaInst in the function
     }
 
 
@@ -620,15 +673,16 @@ namespace
 
             for (auto &F : M)
             {
-                LLVMContext &context = M.getContext();
                 for (BasicBlock &BB : F)
                 {
                     for(Instruction &I : BB)
                     {
+                         LLVMContext &context = M.getContext();
                         if(isa<LoadInst>(&I))
                         {
                             string valLoad  = getReg(&I);
                             int valRep = instMap[&I][valLoad];
+                           
                             Value *Op1 = ConstantInt::get(Type::getInt32Ty(context), valRep);
                             if((instMap[&I][valLoad] != INT32_MIN) && (instMap[&I][valLoad] != INT32_MAX))
                             {
@@ -650,9 +704,47 @@ namespace
                     }
                 }
             }
-            
+
             for (const auto &I : InsToDel)
                 I->eraseFromParent();
+            
+            InsToDel.clear();
+            
+            for (auto &F : M)
+            {
+                for (BasicBlock &BB : F)
+                {
+                    for(Instruction &I : BB)
+                    {
+                        if (StoreInst *SI = dyn_cast<StoreInst>(&I))//
+                        {
+                            if(canRemoveStore(SI))
+                                InsToDel.insert(&I);
+                        }
+                    }
+                }
+            }
+
+            for (const auto &I : InsToDel)
+                I->eraseFromParent();
+
+            InsToDel.clear();
+
+            for (auto &F : M) {
+                for (BasicBlock &BB : F) {
+                    for (Instruction &I : BB) {
+                        if (AllocaInst *AI = dyn_cast<AllocaInst>(&I))
+                        {
+                            if (!isUsedAfterAlloca(AI))
+                                InsToDel.insert(&I);
+                        }
+                    }
+                }
+            }
+
+            for (const auto &I : InsToDel)
+                I->eraseFromParent();
+
         return true;
         }
     };
