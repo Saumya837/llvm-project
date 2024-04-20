@@ -142,19 +142,18 @@ namespace
         return Args;
     }
 
+struct constant_p : public ModulePass {
+  static char ID;
+  constant_p() : ModulePass(ID) {}
 
-    struct constPropTrans : public ModulePass 
-    {
-        static char ID;
-        constPropTrans() : ModulePass(ID) {}
-        bool runOnModule(Module &M) override
-        {
-            unordered_map<BasicBlock *, unordered_map<string, int>> bbMap;
-            unordered_map<Instruction *, unordered_map<string, int>> instMap;
+  bool runOnModule(Module &M) override {
+    // write your code here
+            unordered_map<BasicBlock *, unordered_map<string, int32_t>> bbMap;
+            unordered_map<Instruction *, unordered_map<string, int32_t>> instMap;
             unordered_map<BasicBlock *, unordered_map<string, Instruction *>> last_mod_out;
-            unordered_map<string, int> final_out;
+            unordered_map<string, int64_t> final_out;
             vector<string> alloca_var;
-            map<string, map<string, int>>funcArg;
+            map<string, map<string, int64_t>>funcArg;
             set<Instruction *> InsToDel;
 
             for (auto &F: M)
@@ -168,7 +167,7 @@ namespace
                     for(Argument &Arg : F.args())
                     {
                         string argName = '%'+Arg.getName().str(); // Get the name of the argument as string
-                        funcArg[funcName][argName] =  INT_MAX;
+                        funcArg[funcName][argName] =  INT32_MAX;
                     }  
                 }    
             }
@@ -198,8 +197,8 @@ namespace
                         {
                             string allocVar = AI->getName().str();
                             // Initialize with INT64_MAX assuming no specific initial values are provided
-                            instMap[&I][allocVar] = INT_MAX;
-                            bbMap[&BB][allocVar] = INT_MAX;
+                            instMap[&I][allocVar] = INT32_MAX;
+                            bbMap[&BB][allocVar] = INT32_MAX;
                             alloca_var.push_back(allocVar);
                             last_mod_out[&BB][allocVar] = &I;
                         }
@@ -238,7 +237,7 @@ namespace
                     
                     unordered_map<string, Instruction *> last_mod;
                     BasicBlock *PredBB = BB->getUniquePredecessor();
-                    unordered_map<string, int> curr_out;
+                    unordered_map<string, int64_t> curr_out;
                     bool change = false;
                     // Check if the function name exists in funcArg
 
@@ -274,8 +273,8 @@ namespace
                                 }
                                 if(flag == 1)
                                 {
-                                    bbMap[BB][var] = INT_MIN;
-                                    instMap[I][var] = INT_MIN;
+                                    bbMap[BB][var] = INT32_MIN;
+                                    instMap[I][var] = INT32_MIN;
                                     last_mod[var] = I;
                                 }
                                 else
@@ -310,8 +309,8 @@ namespace
                                         if (PT->getPointerElementType()->isIntegerTy())
                                         { 
                                             string VarName = cast<AllocaInst>(ArgValue)->getName().str();
-                                            instMap[&I][VarName] = INT_MIN;
-                                            bbMap[BB][VarName] = INT_MIN;
+                                            instMap[&I][VarName] = INT32_MIN;
+                                            bbMap[BB][VarName] = INT32_MIN;
                                             last_mod[VarName] = &I;
                                         }
                                     }
@@ -341,7 +340,7 @@ namespace
                                 int count = 0;
                                 // Compare and potentially update function arguments
                                 for (auto& var : funcArg[callee]) {
-                                    if (var.second == INT_MAX)
+                                    if (var.second == INT32_MAX)
                                     {
                                         var.second = argValues[count];
                                         hasChanged = true;
@@ -349,7 +348,7 @@ namespace
                                     }
                                     else if(var.second != argValues[count])
                                     {
-                                        var.second = INT_MIN;
+                                        var.second = INT32_MIN;
                                         hasChanged = true;
                                         count++;  
                                     }
@@ -384,7 +383,7 @@ namespace
                             string tempReg = getReg(&*LI);
                             string varName = LI->getPointerOperand()->getName().str();
                            
-                            if (instMap[last_mod[varName]][varName] == INT_MIN)
+                            if (instMap[last_mod[varName]][varName] == INT32_MIN)
                             {
                                 instMap[&I][tempReg] = instMap[last_mod[varName]][varName];
                                 last_mod[tempReg] = &I;
@@ -408,7 +407,7 @@ namespace
                             if(!(isa<Constant>(Op1)) && (isa<Constant>(Op2)))
                             {
                                 string Op1Name = getOp(&*BO)[0];
-                                if(instMap[last_mod[Op1Name]][Op1Name]==INT_MIN)
+                                if(instMap[last_mod[Op1Name]][Op1Name]==INT32_MIN)
                                 {
                                     instMap[&I][resultReg] = instMap[last_mod[Op1Name]][Op1Name];
                                     last_mod[resultReg] = &I;
@@ -437,9 +436,9 @@ namespace
                                 string Op2Name = getOp(&*BO)[1];
                                 string resultReg = getReg(&*BO);
 
-                                if((instMap[last_mod[Op1Name]][Op1Name]==INT_MIN)||(instMap[last_mod[Op2Name]][Op2Name]==INT_MIN))
+                                if((instMap[last_mod[Op1Name]][Op1Name]==INT32_MIN)||(instMap[last_mod[Op2Name]][Op2Name]==INT32_MIN))
                                 {
-                                    instMap[&I][resultReg] = INT_MIN;
+                                    instMap[&I][resultReg] = INT32_MIN;
                                     instMap[&I][Op1Name] = instMap[last_mod[Op1Name]][Op1Name];
                                     instMap[&I][Op2Name] = instMap[last_mod[Op2Name]][Op2Name];
                                 }
@@ -472,10 +471,10 @@ namespace
                                 { 
                                     string varName = Opn[0];
                                     int64_t value = getConst(ICmp)[0];
-                                    if(instMap[last_mod[varName]][varName] == INT_MIN)
+                                    if(instMap[last_mod[varName]][varName] == INT32_MIN)
                                     {
                                         last_mod[proVar] = &I;
-                                        instMap[&I][proVar] = INT_MIN;
+                                        instMap[&I][proVar] = INT32_MIN;
                                     }
                                     else
                                     {
@@ -538,9 +537,9 @@ namespace
                             string procVar = getReg(SelInst);
                             string condVar = '%'+Condition->getName().str();
 
-                            if(instMap[last_mod[condVar]][condVar]==INT_MIN)
+                            if(instMap[last_mod[condVar]][condVar]==INT32_MIN)
                             {
-                                instMap[&I][procVar] = INT_MIN;
+                                instMap[&I][procVar] = INT32_MIN;
                                 last_mod[procVar] = &I;
                             }
                             else if(instMap[last_mod[condVar]][condVar]==0)
@@ -617,47 +616,35 @@ namespace
                     }
                 }
             }
-
-            for (auto &F : M)
-            {
-                LLVMContext &context = M.getContext();
-                for (BasicBlock &BB : F)
-                {
-                    for(Instruction &I : BB)
-                    {
-                        if(isa<LoadInst>(&I))
-                        {
-                            string valLoad  = getReg(&I);
-                            int valRep = instMap[&I][valLoad];
-                            Value *Op1 = ConstantInt::get(Type::getInt32Ty(context), valRep);
-                            if((instMap[&I][valLoad] != INT32_MIN) && (instMap[&I][valLoad] != INT32_MAX))
-                            {
-                                I.replaceAllUsesWith(Op1);
-                                InsToDel.insert(&I);
-                            }
-                        }
-                        else if(isa<BinaryOperator>(&I))
-                        {
-                            string valLoad  = getReg(&I);
-                            int valRep = instMap[&I][valLoad];
-                            Value *Op1 = ConstantInt::get(Type::getInt32Ty(context), valRep);
-                            if((instMap[&I][valLoad] != INT32_MIN) && (instMap[&I][valLoad] != INT32_MAX))
-                            {
-                                I.replaceAllUsesWith(Op1);
-                                InsToDel.insert(&I);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            for (const auto &I : InsToDel)
-                I->eraseFromParent();
-        return true;
+    for (auto &F : M)
+    {
+      for (auto &BB : F)
+      {
+        for (auto I = BB.begin(); I != BB.end();)
+        {
+          if (!isa<AllocaInst>(&*I))
+            I = BB.getInstList().erase(I);
+          else
+            I++;
         }
-    };
-}
+      }
+    }
 
-char constPropTrans::ID = 0;
-static RegisterPass<constPropTrans> X("constPropTrans", "Perform interpocedural constant propagation");
+    for (auto &F : M)
+    {
+      for (auto &BB : F)
+      {
+        for (auto &I : BB)
+        {
+          errs() << I << "\n";
+        }
+      }
+    }
 
+    return true;
+  }
+}; // end of struct constant_p
+}  // end of anonymous namespace
+
+char constant_p::ID = 0;
+static RegisterPass<constant_p> X("temp", "Constant Propagation Pass for Assignment");
